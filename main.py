@@ -60,6 +60,7 @@ async def my_background_task():
                             channel = discord.utils.get(server.text_channels, name=tag)
                             print("Új event!", event)
                             embed=discord.Embed(color=0xcd2323)
+                            embed.set_author(name="📅", url=("https://www.notion.so/" + str(event.id).replace("-", "")))
                             embed.add_field(name=event.title, value=event.date.start.strftime("%Y. %m. %d.\n%H:%M"), inline=True)
                             embed.set_footer(text=', '.join(map(str,event.tags)))
                             await channel.send(embed=embed)
