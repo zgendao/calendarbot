@@ -6,4 +6,4 @@ COPY requirements.txt .
 RUN pip3 install requirements.txt
 
 COPY . .
-CMD [ "python", "main.py" ]
+CMD [ "python3", "main.py" ]
