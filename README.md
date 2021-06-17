@@ -1,2 +1,4 @@
-# calendarbot
-Notion calendar integration for Discord.
+# calendarbotv2
+ Verison 2 of Calendar Bot
+
+ With the official Notion API

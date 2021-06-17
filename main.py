@@ -1,101 +1,87 @@
-import asyncio
-import json
 import os
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 
 import discord
 from dotenv import load_dotenv
-from notion.client import NotionClient
+from notion_client import Client
 
 #Discord init
 load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
-GUILD = os.getenv('DISCORD_GUILD')
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+DISCORD_GUILD = os.getenv('DISCORD_GUILD')
+discordServer = None
+discordClient = discord.Client()
 
 #Notion init
-NTOKEN = os.getenv('NOTION_TOKEN')
-NCALENDAR = os.getenv('NOTION_CALENDAR')
-NBLOCK = os.getenv('NOTION_BLOCK')
-nclient = NotionClient(token_v2=NTOKEN)
-
-block=nclient.get_block(NBLOCK)
-for child in block.children:
-    try:
-        if child.title=='Meetings':
-            break
-    except:
-        pass
-
-tablazat = nclient.get_collection_view(NCALENDAR)
+NOTION_CALENDAR = os.getenv('NOTION_CALENDAR')
+notion = Client(auth=os.environ["NOTION_TOKEN"])
 
 
-server=0
-client = discord.Client()
+async def sendMessage(id, name, startDate, channels):
+    embed=discord.Embed(color=0xcd2323)
+    embed.set_author(name="📅", url=("https://www.notion.so/" + str(id).replace("-", "")))
+    embed.add_field(name=name, value=startDate, inline=True)
+    embed.set_footer(text=', '.join(map(str,channels)))
 
-def getEvents(table):
-    return table.collection.get_rows()
-
-async def reminder(date, event):
-    seconds=(date-datetime.now()).total_seconds()-600
-    if seconds>0:
-        print("New reminder set!")
-        await asyncio.sleep(seconds)
-        for tag in event.Channels:
-            try:
-                channel = discord.utils.get(server.text_channels, name=tag)
-                print("Reminder!", event)
-                embed=discord.Embed(color=0xcd2323)
-                embed.set_author(name="📅", url=("https://www.notion.so/" + str(event.id).replace("-", "")))
-                embed.add_field(name=event.title, value="In 10 minutes", inline=True)
-                embed.set_footer(text=', '.join(map(str,event.Channels)))
-                await channel.send(embed=embed)
-            except:
-                pass
-    else:
-        pass
-
-async def my_background_task():
-    while True:
-        await asyncio.sleep(3)
-        await client.wait_until_ready()
-        if server:
-            newEvents=getEvents(tablazat)
-            for event in newEvents:
-                if  event.Notification and event.date:
-                    for tag in event.Channels:
-                        try:
-                            channel = discord.utils.get(server.text_channels, name=tag)
-                            print("Új event!", event)
-                            embed=discord.Embed(color=0xcd2323)
-                            embed.set_author(name="📅", url=("https://www.notion.so/" + str(event.id).replace("-", "")))
-                            embed.add_field(name=event.title, value=event.date.start.strftime("%Y. %m. %d.\n%H:%M"), inline=True)
-                            embed.set_footer(text=', '.join(map(str,event.Channels)))
-                            event.Notification=False
-                            await channel.send(embed=embed)
-                        except:
-                            pass
-                if event.Reminder:
-                    asyncio.get_event_loop().create_task(reminder(event.date.start, event))
-                    event.Reminder=False
+    for channelname in channels:
+        channel = discord.utils.get(discordServer.text_channels, name=channelname)
+        await channel.send(embed=embed)
 
 
+async def queryNotifications():
+    results = notion.databases.query(**{"database_id": NOTION_CALENDAR, "filter" : {"property": "Notification", "checkbox": {"equals": True}}})["results"]
+    for event in results:
+        startingTime = datetime.fromisoformat(event["properties"]["Date"]["date"]["start"])
+        timeBetween = startingTime.replace(tzinfo=None) - datetime.today()
+        if timeBetween <= timedelta():
+            notion.pages.update(event["id"], **{"properties": {'Notification': {"checkbox": False}}})
+            continue
+        channels = list(map(lambda x: x["name"], event["properties"]["Channels"]["multi_select"]))
+        await sendMessage(event["id"], event["properties"]["Name"]["title"][0]["plain_text"] , startingTime.strftime("%Y. %m. %d.\n%H:%M"), channels)
+        notion.pages.update(event["id"], **{"properties": {'Notification': {"checkbox": False}}})
 
 
-@client.event
+async def queryReminders():
+    results = notion.databases.query(**{"database_id": NOTION_CALENDAR, "filter" : {"property": "Reminder", "checkbox": {"equals": True}}})["results"]
+    for event in results:
+        startingTime = datetime.fromisoformat(event["properties"]["Date"]["date"]["start"])
+        timeBetween = startingTime.replace(tzinfo=None) - datetime.today()
+        if timeBetween <= timedelta():
+            notion.pages.update(event["id"], **{"properties": {'Reminder': {"checkbox": False}}})
+            continue
+        if timeBetween <= timedelta(minutes=10):
+            channels = list(map(lambda x: x["name"], event["properties"]["Channels"]["multi_select"]))
+            await sendMessage(event["id"], event["properties"]["Name"]["title"][0]["plain_text"] , "In 10 minutes", channels)
+            notion.pages.update(event["id"], **{"properties": {'Reminder': {"checkbox": False}}})
+
+
+@discordClient.event
 async def on_ready():
-    global server
-    for guild in client.guilds:
-        if str(guild.name) == GUILD:
-            server=guild
+    global discordServer
+    for guild in discordClient.guilds:
+        if str(guild.name) == DISCORD_GUILD:
+            discordServer=guild
             break
+    
+    if not discordServer:
+        raise Exception("This Discord Server can't be found!")
 
     print(
-        f'{client.user} is connected to the following guild:\n'
-        f'{server.name}(id: {server.id})'
+        f'{discordClient.user} is connected to the following guild:\n'
+        f'{discordServer.name}(id: {discordServer.id})'
     )
+    discordClient.loop.create_task(mainLoop())
 
 
-client.loop.create_task(my_background_task())
-client.run(TOKEN)
+async def mainLoop():
+    while True:
+        try:
+            await queryNotifications()
+            await queryReminders()
+        except:
+            pass
+        time.sleep(3)
 
 
+discordClient.run(DISCORD_TOKEN)
