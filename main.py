@@ -3,6 +3,7 @@ import time
 from datetime import datetime, timedelta
 
 import discord
+from discord.embeds import Embed
 from dotenv import load_dotenv
 from notion_client import Client
 
@@ -17,16 +18,23 @@ discordClient = discord.Client()
 NOTION_CALENDAR = os.getenv('NOTION_CALENDAR')
 notion = Client(auth=os.environ["NOTION_TOKEN"])
 
+async def poll(message):
+    for emoji in ('👍', '👎'):
+        await message.add_reaction(emoji)
 
 async def sendMessage(id, name, startDate, channels):
     embed=discord.Embed(color=0xcd2323)
     embed.set_author(name="📅", url=("https://www.notion.so/" + str(id).replace("-", "")))
-    embed.add_field(name=name, value=startDate, inline=True)
+    embed.add_field(name=name, value=startDate, inline=False)
+    embed.add_field(name="Coming", value="-", inline=True)
+    embed.add_field(name="Not Coming", value="-", inline=True)
     embed.set_footer(text=', '.join(map(str,channels)))
 
     for channelname in channels:
         channel = discord.utils.get(discordServer.text_channels, name=channelname)
-        await channel.send(embed=embed)
+        message = await channel.send(embed=embed)
+        #await poll(message)
+
 
 
 async def queryNotifications():
@@ -72,6 +80,32 @@ async def on_ready():
         f'{discordServer.name}(id: {discordServer.id})'
     )
     discordClient.loop.create_task(mainLoop())
+
+@discordClient.event
+async def on_reaction_add(reaction, user):
+    if str(user) != "Calendar bot#1720":
+        if str(reaction) == "👍":
+            for sent_embed in reaction.message.embeds:
+                embed_dict=sent_embed.to_dict()
+                users = embed_dict['fields'][1]['value']
+                if users == '-':
+                    users = str(user.name)
+                else:
+                    users = users + "\n" + str(user.name)
+                embed_dict['fields'][1]['value']=users
+                print("eljut")
+                await reaction.message.edit(embed=Embed.from_dict(embed_dict))
+        if str(reaction) == "👎":
+            for sent_embed in reaction.message.embeds:
+                embed_dict=sent_embed.to_dict()
+                users = embed_dict['fields'][2]['value']
+                if users == '-':
+                    users = str(user.name)
+                else:
+                    users = users + "\n" + str(user.name)
+                embed_dict['fields'][1]['value']=users
+                print("eljut")
+                await reaction.message.edit(embed=Embed.from_dict(embed_dict))
 
 
 async def mainLoop():
